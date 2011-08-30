@@ -6,9 +6,12 @@ import hudson.EnvVars;
 import hudson.Launcher;
 import hudson.model.*;
 import hudson.scm.SubversionSCM;
+import hudson.scm.listtagsparameter.SimpleSVNDirEntryHandler;
+
 import org.apache.commons.lang.StringUtils;
 import org.codehaus.groovy.control.CompilerConfiguration;
 import org.tmatesoft.svn.core.SVNCommitInfo;
+import org.tmatesoft.svn.core.SVNDepth;
 import org.tmatesoft.svn.core.SVNErrorMessage;
 import org.tmatesoft.svn.core.SVNException;
 import org.tmatesoft.svn.core.SVNProperties;
@@ -18,6 +21,7 @@ import org.tmatesoft.svn.core.auth.ISVNAuthenticationProvider;
 import org.tmatesoft.svn.core.wc.SVNCommitClient;
 import org.tmatesoft.svn.core.wc.SVNCopyClient;
 import org.tmatesoft.svn.core.wc.SVNCopySource;
+import org.tmatesoft.svn.core.wc.SVNLogClient;
 import org.tmatesoft.svn.core.wc.SVNRevision;
 import org.tmatesoft.svn.core.wc.SVNWCUtil;
 
@@ -64,6 +68,7 @@ public class SvnTagPlugin {
                                   Launcher launcher,
                                   BuildListener buildListener,
                                   String tagBaseURLStr, String tagComment,
+                                  boolean tagDeleteAllowed,
                                   String tagDeleteComment) throws IOException, InterruptedException {
         PrintStream logger = buildListener.getLogger();
 
@@ -114,6 +119,7 @@ public class SvnTagPlugin {
                 SVNWCUtil.createDefaultAuthenticationManager();
         sam.setAuthenticationProvider(sap);
 
+        SVNLogClient logClient = new SVNLogClient(sam, null);
         SVNCommitClient commitClient = new SVNCommitClient(sam, null);
 
         for (SubversionSCM.ModuleLocation ml : scm.getLocations(envVars, abstractBuild)) {
@@ -147,6 +153,18 @@ public class SvnTagPlugin {
            				evaledTagBaseURLStr, e.getLocalizedMessage()));
             }
 
+            if (!tagDeleteAllowed) {
+				logger.println(Messages.VerifyTagBaseURL(parsedTagBaseURL.toString()));
+            	try {
+					logClient.doList(parsedTagBaseURL, SVNRevision.HEAD, SVNRevision.HEAD,
+							false, SVNDepth.EMPTY, 0, new SimpleSVNDirEntryHandler(null));
+					logger.println(Messages.TagAlreadyExists());
+					return false;
+				} catch (SVNException e) {
+					// expecting a "svn: URL non-existent in that revision" exception
+					//logger.println(e.getMessage());
+				}
+            }
             try {
                 String evalDeleteComment = evalGroovyExpression(
                 		envVars, tagDeleteComment, locationPathElements);
