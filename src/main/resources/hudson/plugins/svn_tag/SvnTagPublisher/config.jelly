@@ -2,6 +2,9 @@
   <f:entry title="${%Tag Base URL}" field="tagBaseURL">
     <f:textbox default="${descriptor.defaultTagBaseURL}"/>
   </f:entry>
+  <f:entry title="${%Tag Unstable Builds}">
+    <f:checkbox name="tagUnstableBuilds" checked="${instance.tagUnstableBuilds}" title=""/>
+  </f:entry>
   <f:entry title="${%Tag Comment}" field="tagComment">
     <f:textbox default="${descriptor.tagComment}"/>
   </f:entry>

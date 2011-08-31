@@ -67,13 +67,15 @@ public class SvnTagPlugin {
     public static boolean perform(AbstractBuild<?,?> abstractBuild,
                                   Launcher launcher,
                                   BuildListener buildListener,
-                                  String tagBaseURLStr, String tagComment,
-                                  boolean tagDeleteAllowed,
+                                  String tagBaseURLStr, boolean tagUnstableBuilds,
+                                  String tagComment, boolean tagDeleteAllowed,
                                   String tagDeleteComment) throws IOException, InterruptedException {
         PrintStream logger = buildListener.getLogger();
-
-        // TODO ME tag unstable builds -> configuration
-        if (!Result.SUCCESS.equals(abstractBuild.getResult()) && !Result.UNSTABLE.equals(abstractBuild.getResult())) {
+        if (Result.UNSTABLE.equals(abstractBuild.getResult()) && !tagUnstableBuilds) {
+            logger.println(Messages.UnstableBuild());
+            return true;
+        }
+        if (!Result.SUCCESS.equals(abstractBuild.getResult())) {
             logger.println(Messages.UnsuccessfulBuild());
             return true;
         }

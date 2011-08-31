@@ -35,7 +35,7 @@ public class SvnTagPublisher extends Notifier {
      * tag base URL
      */
     private String tagBaseURL = null;
-
+    private final boolean tagUnstableBuilds;
     private String tagComment = null;
 
     @Deprecated
@@ -45,8 +45,9 @@ public class SvnTagPublisher extends Notifier {
 	private String tagDeleteComment = null;
 
     @DataBoundConstructor
-    public SvnTagPublisher(String tagBaseURL, String tagComment, Boolean tagDeleteAllowed, String tagDeleteComment) {
+    public SvnTagPublisher(String tagBaseURL, boolean tagUnstableBuilds, String tagComment, Boolean tagDeleteAllowed, String tagDeleteComment) {
         this.tagBaseURL = tagBaseURL;
+        this.tagUnstableBuilds = tagUnstableBuilds;
         this.tagComment = tagComment;
         this.tagDeleteAllowed = tagDeleteAllowed;
         this.tagDeleteComment = tagDeleteComment;
@@ -60,6 +61,10 @@ public class SvnTagPublisher extends Notifier {
     public String getTagBaseURL() {
         return this.tagBaseURL;
     }
+
+    public boolean isTagUnstableBuilds() {
+		return tagUnstableBuilds;
+	}
 
     public String getTagComment() {
         return this.tagComment;
@@ -83,7 +88,7 @@ public class SvnTagPublisher extends Notifier {
                            BuildListener buildListener)
             throws InterruptedException, IOException {
         if (SvnTagPlugin.perform(abstractBuild, launcher, buildListener,
-                this.getTagBaseURL(), this.getTagComment(), isTagDeleteAllowed(),
+                this.getTagBaseURL(), isTagUnstableBuilds(), this.getTagComment(), isTagDeleteAllowed(),
                 this.getTagDeleteComment())) {
         	return true;
         } else {
@@ -93,7 +98,7 @@ public class SvnTagPublisher extends Notifier {
         }
     }
 
-    @Override
+	@Override
     public boolean needsToRunAfterFinalized() {
         return true;
     }
