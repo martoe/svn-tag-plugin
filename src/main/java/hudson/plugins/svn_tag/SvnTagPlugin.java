@@ -71,13 +71,16 @@ public class SvnTagPlugin {
                                   String tagComment, boolean tagDeleteAllowed,
                                   String tagDeleteComment) throws IOException, InterruptedException {
         PrintStream logger = buildListener.getLogger();
-        if (Result.UNSTABLE.equals(abstractBuild.getResult()) && !tagUnstableBuilds) {
-            logger.println(Messages.UnstableBuild());
-            return true;
-        }
         if (!Result.SUCCESS.equals(abstractBuild.getResult())) {
+	        if (Result.UNSTABLE.equals(abstractBuild.getResult())) {
+	        	if (!tagUnstableBuilds) {
+	            logger.println(Messages.UnstableBuild());
+	            return true;
+	        	}
+        	} else {
             logger.println(Messages.UnsuccessfulBuild());
             return true;
+        	}
         }
 
         AbstractProject<?, ?> rootProject =
