@@ -1,17 +1,20 @@
 package hudson.plugins.svn_tag;
 
+import org.tmatesoft.svn.core.wc.SVNLogClient;
+
+import hudson.scm.listtagsparameter.SimpleSVNDirEntryHandler;
+
+import org.tmatesoft.svn.core.SVNDepth;
+
 import groovy.lang.Binding;
 import groovy.lang.GroovyShell;
 import hudson.EnvVars;
 import hudson.Launcher;
 import hudson.model.*;
 import hudson.scm.SubversionSCM;
-import hudson.scm.listtagsparameter.SimpleSVNDirEntryHandler;
-
 import org.apache.commons.lang.StringUtils;
 import org.codehaus.groovy.control.CompilerConfiguration;
 import org.tmatesoft.svn.core.SVNCommitInfo;
-import org.tmatesoft.svn.core.SVNDepth;
 import org.tmatesoft.svn.core.SVNErrorMessage;
 import org.tmatesoft.svn.core.SVNException;
 import org.tmatesoft.svn.core.SVNProperties;
@@ -21,7 +24,6 @@ import org.tmatesoft.svn.core.auth.ISVNAuthenticationProvider;
 import org.tmatesoft.svn.core.wc.SVNCommitClient;
 import org.tmatesoft.svn.core.wc.SVNCopyClient;
 import org.tmatesoft.svn.core.wc.SVNCopySource;
-import org.tmatesoft.svn.core.wc.SVNLogClient;
 import org.tmatesoft.svn.core.wc.SVNRevision;
 import org.tmatesoft.svn.core.wc.SVNWCUtil;
 
@@ -67,21 +69,24 @@ public class SvnTagPlugin {
     public static boolean perform(AbstractBuild<?,?> abstractBuild,
                                   Launcher launcher,
                                   BuildListener buildListener,
-                                  String tagBaseURLStr, boolean tagUnstableBuilds,
-                                  String tagComment, boolean tagDeleteAllowed,
-                                  String tagDeleteComment) throws IOException, InterruptedException {
+                                  String tagBaseURLStr, boolean tagUnstableBuilds, String tagComment,
+                                  boolean tagDeleteAllowed, String tagDeleteComment) throws IOException, InterruptedException {
         PrintStream logger = buildListener.getLogger();
+
         if (Result.UNSTABLE.equals(abstractBuild.getResult()) && !tagUnstableBuilds) {
-            logger.println(Messages.UnstableBuild());
-            return true;
+          logger.println(Messages.UnstableBuild());
+          return true;
         }
         if (!Result.SUCCESS.equals(abstractBuild.getResult())) {
-            logger.println(Messages.UnsuccessfulBuild());
-            return true;
+          logger.println(Messages.UnsuccessfulBuild());
+          return true;
         }
 
+        // in the presence of Maven module build and promoted builds plugin (JENKINS-5608),
+        // we rely on the root project to find the SCM configuration and revision to tag.
         AbstractProject<?, ?> rootProject =
                 abstractBuild.getProject().getRootProject();
+        AbstractBuild<?, ?> rootBuild = abstractBuild.getRootBuild();
 
         if (!(rootProject.getScm() instanceof SubversionSCM)) {
             logger.println(Messages.NotSubversion(rootProject.getScm().toString()));
@@ -89,7 +94,7 @@ public class SvnTagPlugin {
         }
 
         SubversionSCM scm = SubversionSCM.class.cast(rootProject.getScm());
-        EnvVars envVars = abstractBuild.getEnvironment(buildListener);
+        EnvVars envVars = rootBuild.getEnvironment(buildListener);
 
         // Let SubversionSCM fill revision number.
         // It is guaranteed for getBuilds() return the latest build (i.e.
@@ -97,13 +102,13 @@ public class SvnTagPlugin {
         // The passed in abstractBuild may be the sub maven module and not
         // have revision.txt holding Svn revision information, so need to use
         // the build associated with the root level project.
-        scm.buildEnvVars(rootProject.getBuilds().get(0), envVars);
-        
+        scm.buildEnvVars(rootBuild, envVars);
+
         // environment variable "SVN_REVISION" doesn't contain revision number when multiple modules are
         // specified. Instead, parse revision.txt and obtain the corresponding revision numbers.
         Map<String, Long> revisions;
         try {
-            revisions = parseRevisionFile(abstractBuild);
+            revisions = parseRevisionFile(rootBuild);
         } catch (IOException e) {
             logger.println(
             		Messages.FailedParsingRevisionFile(e.getLocalizedMessage()));
@@ -124,9 +129,9 @@ public class SvnTagPlugin {
         SVNLogClient logClient = new SVNLogClient(sam, null);
         SVNCommitClient commitClient = new SVNCommitClient(sam, null);
 
-        for (SubversionSCM.ModuleLocation ml : scm.getLocations(envVars, abstractBuild)) {
-			String mlUrl = null;
-        	URI repoURI = null;
+        for (SubversionSCM.ModuleLocation ml : scm.getLocations(envVars, rootBuild)) {
+			String mlUrl;
+        	URI repoURI;
 			try {
 				mlUrl = ml.getSVNURL().toString();
 				repoURI = new URI(mlUrl);
@@ -139,7 +144,14 @@ public class SvnTagPlugin {
         				Messages.FailedParsingRepositoryURL(ml.remote, e.getLocalizedMessage()));
         		return false;
         	}
-        	logger.println(Messages.RemoteModuleLocation(mlUrl));
+            Long revision = revisions.get(mlUrl);
+            if (revision == null) {
+                // this can happen for example if the project configuration changes since this build.
+                logger.println(Messages.RevisionNotAvailable(mlUrl));
+                continue;
+            }
+
+        	logger.println(Messages.RemoteModuleLocation(mlUrl+'@'+revision));
 
             List<String> locationPathElements = Arrays.asList(StringUtils.split(mlUrl, "/"));
             String evaledTagBaseURLStr = evalGroovyExpression(
@@ -156,17 +168,18 @@ public class SvnTagPlugin {
             }
 
             if (!tagDeleteAllowed) {
-				logger.println(Messages.VerifyTagBaseURL(parsedTagBaseURL.toString()));
-            	try {
-					logClient.doList(parsedTagBaseURL, SVNRevision.HEAD, SVNRevision.HEAD,
-							false, SVNDepth.EMPTY, 0, new SimpleSVNDirEntryHandler(null));
-					logger.println(Messages.TagAlreadyExists());
-					return false;
-				} catch (SVNException e) {
-					// expecting a "svn: URL non-existent in that revision" exception
-					//logger.println(e.getMessage());
-				}
+            		logger.println(Messages.VerifyTagBaseURL(parsedTagBaseURL.toString()));
+            		try {
+            				logClient.doList(parsedTagBaseURL, SVNRevision.HEAD, SVNRevision.HEAD,
+            						false, SVNDepth.EMPTY, 0, new SimpleSVNDirEntryHandler(null));
+            				logger.println(Messages.TagAlreadyExists());
+            				return false;
+            		} catch (SVNException e) {
+            				// expecting a "svn: URL non-existent in that revision" exception
+            				//logger.println(e.getMessage());
+            		}
             }
+            
             try {
                 String evalDeleteComment = evalGroovyExpression(
                 		envVars, tagDeleteComment, locationPathElements);
@@ -191,11 +204,6 @@ public class SvnTagPlugin {
                 String evalComment = evalGroovyExpression(
                         envVars, tagComment, locationPathElements);
 
-                Long revision = revisions.get(mlUrl);
-                if (revision == null)
-                {
-                	logger.println(Messages.RevisionNotAvailable(mlUrl));
-                }
                 SVNRevision rev = SVNRevision.create(revision);
 
                 SVNCommitInfo commitInfo =
