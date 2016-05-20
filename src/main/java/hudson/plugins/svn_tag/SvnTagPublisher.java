@@ -41,12 +41,17 @@ public class SvnTagPublisher extends Notifier {
     @Deprecated
     private transient String tagMkdirComment;
 
+    private final boolean tagUnstableBuilds;
+    /** "null" means "true" (to ensure backwards compatibility) */
+    private final Boolean tagDeleteAllowed;
     private String tagDeleteComment = null;
 
     @DataBoundConstructor
-    public SvnTagPublisher(String tagBaseURL, String tagComment, String tagDeleteComment) {
+    public SvnTagPublisher(String tagBaseURL, boolean tagUnstableBuilds, String tagComment, Boolean tagDeleteAllowed, String tagDeleteComment) {
         this.tagBaseURL = tagBaseURL;
+        this.tagUnstableBuilds = tagUnstableBuilds;
         this.tagComment = tagComment;
+        this.tagDeleteAllowed = tagDeleteAllowed;
         this.tagDeleteComment = tagDeleteComment;
     }
 
@@ -59,9 +64,17 @@ public class SvnTagPublisher extends Notifier {
         return this.tagBaseURL;
     }
 
+    public boolean isTagUnstableBuilds() {
+		return tagUnstableBuilds;
+	}
+
     public String getTagComment() {
         return this.tagComment;
     }
+
+    public boolean isTagDeleteAllowed() {
+		return tagDeleteAllowed == null || tagDeleteAllowed.booleanValue();
+	}
 
     public String getTagDeleteComment() {
         return this.tagDeleteComment;
@@ -76,9 +89,15 @@ public class SvnTagPublisher extends Notifier {
                            Launcher launcher,
                            BuildListener buildListener)
             throws InterruptedException, IOException {
-        return SvnTagPlugin.perform(abstractBuild, launcher, buildListener,
-                this.getTagBaseURL(), this.getTagComment(),
-                this.getTagDeleteComment());
+        if (SvnTagPlugin.perform(abstractBuild, launcher, buildListener,
+                this.getTagBaseURL(), isTagUnstableBuilds(), this.getTagComment(), isTagDeleteAllowed(),
+                this.getTagDeleteComment())) {
+        	return true;
+        } else {
+        	// since this publisher "needsToRunAfterFinalized" (because it commits to SVN),
+        	// we cannot fail the build by simply returning "false"...
+        	throw new RuntimeException("SVN Tag Publisher failed");
+        }
     }
 
     @Override

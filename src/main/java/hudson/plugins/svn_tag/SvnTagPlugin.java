@@ -10,6 +10,7 @@ import hudson.model.Run;
 import hudson.model.BuildListener;
 import hudson.model.Result;
 import hudson.scm.SubversionSCM;
+import hudson.scm.listtagsparameter.SimpleSVNDirEntryHandler;
 
 import org.apache.commons.lang.StringUtils;
 import org.codehaus.groovy.control.CompilerConfiguration;
@@ -60,14 +61,21 @@ public class SvnTagPlugin {
     public static boolean perform(AbstractBuild<?,?> abstractBuild,
                                   Launcher launcher,
                                   BuildListener buildListener,
-                                  String tagBaseURLStr, String tagComment,
-                                  String tagDeleteComment) throws IOException, InterruptedException {
+                                  String tagBaseURLStr, boolean tagUnstableBuilds, String tagComment,
+                                  boolean tagDeleteAllowed, String tagDeleteComment) throws IOException, InterruptedException {
         PrintStream logger = buildListener.getLogger();
         logger.println("Starting to tag");
 
-        if (Result.SUCCESS!=abstractBuild.getResult()) {
-            logger.println(Messages.UnsuccessfulBuild());
-            return true;
+        if (!Result.SUCCESS.equals(abstractBuild.getResult())) {
+            if (Result.UNSTABLE.equals(abstractBuild.getResult())) {
+                if (!tagUnstableBuilds) {
+                    logger.println(Messages.UnstableBuild());
+                    return true;
+                }
+            } else {
+                logger.println(Messages.UnsuccessfulBuild());
+                return true;
+            }
         }
 
         // in the presence of Maven module build and promoted builds plugin (JENKINS-5608),
@@ -152,6 +160,19 @@ public class SvnTagPlugin {
             ISVNAuthenticationManager sam = SubversionSCM.createSvnAuthenticationManager(sap);
             sam.setAuthenticationProvider(sap);
 
+            if (!tagDeleteAllowed) {
+            		logger.println(Messages.VerifyTagBaseURL(parsedTagBaseURL.toString()));
+            		SVNLogClient logClient = new SVNLogClient(sam, null);
+            		try {
+            				logClient.doList(parsedTagBaseURL, SVNRevision.HEAD, SVNRevision.HEAD,
+            						false, SVNDepth.EMPTY, 0, new SimpleSVNDirEntryHandler(null));
+            				logger.println(Messages.TagAlreadyExists());
+            				return false;
+            		} catch (SVNException e) {
+            				// expecting a "svn: URL non-existent in that revision" exception
+            		}
+            }
+            
             SVNCommitClient commitClient = new SVNCommitClient(sam, null);
             try {
                 String evalDeleteComment = evalGroovyExpression(
